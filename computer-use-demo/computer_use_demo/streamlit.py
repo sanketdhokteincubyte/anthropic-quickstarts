@@ -12,7 +12,9 @@ from enum import StrEnum
 from functools import partial
 from pathlib import PosixPath
 from typing import cast
-
+from io import StringIO
+import json
+import pandas as pd
 import httpx
 import streamlit as st
 from anthropic import RateLimitError
@@ -82,6 +84,8 @@ def setup_state():
         st.session_state.custom_system_prompt = load_from_storage("system_prompt") or ""
     if "hide_images" not in st.session_state:
         st.session_state.hide_images = False
+    if "test_cases" not in st.session_state:
+        st.session_state.test_cases = []
 
 
 def _reset_model():
@@ -98,8 +102,18 @@ async def main():
 
     st.title("Claude Computer Use Demo")
 
-    if not os.getenv("HIDE_WARNING", False):
-        st.warning(WARNING_TEXT)
+    test_cases = st.file_uploader("Upload test cases in Json format",  type=["json"])
+    if test_cases is not None:
+        # To convert to a string based IO:
+        stringio = StringIO(test_cases.getvalue().decode("utf-8"))
+        st.write(stringio)
+
+        # To read file as string:
+        string_data = stringio.read()
+        st.write(string_data)
+
+        st.session_state.test_cases = json.loads(string_data)
+
 
     with st.sidebar:
 
@@ -200,6 +214,18 @@ async def main():
             )
             _render_message(Sender.USER, new_message)
 
+        # render past chats
+        if st.session_state.test_cases.__len__() > 0:
+            test_case = st.session_state.test_cases.pop(0);
+            st.session_state.messages.append(
+                {
+                    "role": Sender.USER,
+                    "content": [BetaTextBlockParam(type="text", text=test_case)],
+                }
+            )
+            print(st.session_state.test_cases)
+            _render_message(Sender.USER, test_case)
+
         try:
             most_recent_message = st.session_state["messages"][-1]
         except IndexError:
@@ -228,6 +254,39 @@ async def main():
                 api_key=st.session_state.api_key,
                 only_n_most_recent_images=st.session_state.only_n_most_recent_images,
             )
+            with open("messages.json", "w") as outfile: 
+                json.dump(st.session_state.messages, outfile)
+
+        while st.session_state.test_cases.__len__() > 0:
+            test_case = st.session_state.test_cases.pop(0);
+            st.session_state.messages.append(
+                {
+                    "role": Sender.USER,
+                    "content": [BetaTextBlockParam(type="text", text=test_case)],
+                }
+            )
+            _render_message(Sender.USER, test_case)
+            with st.spinner("Running Agent..."):
+                # run the agent sampling loop with the newest message
+                st.session_state.messages = await sampling_loop(
+                    system_prompt_suffix=st.session_state.custom_system_prompt,
+                    model=st.session_state.model,
+                    provider=st.session_state.provider,
+                    messages=st.session_state.messages,
+                    output_callback=partial(_render_message, Sender.BOT),
+                    tool_output_callback=partial(
+                        _tool_output_callback, tool_state=st.session_state.tools
+                    ),
+                    api_response_callback=partial(
+                        _api_response_callback,
+                        tab=http_logs,
+                        response_state=st.session_state.responses,
+                    ),
+                    api_key=st.session_state.api_key,
+                    only_n_most_recent_images=st.session_state.only_n_most_recent_images,
+                )
+                with open("messages.json", "w") as outfile: 
+                    json.dump(st.session_state.messages, outfile)
 
 
 def validate_auth(provider: APIProvider, api_key: str | None):
