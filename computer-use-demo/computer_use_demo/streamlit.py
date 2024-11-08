@@ -79,11 +79,11 @@ def setup_state():
     if "tools" not in st.session_state:
         st.session_state.tools = {}
     if "only_n_most_recent_images" not in st.session_state:
-        st.session_state.only_n_most_recent_images = 10
+        st.session_state.only_n_most_recent_images = 2
     if "custom_system_prompt" not in st.session_state:
         st.session_state.custom_system_prompt = load_from_storage("system_prompt") or ""
     if "hide_images" not in st.session_state:
-        st.session_state.hide_images = False
+        st.session_state.hide_images = True
     if "test_cases" not in st.session_state:
         st.session_state.test_cases = []
 
@@ -100,9 +100,9 @@ async def main():
 
     st.markdown(STREAMLIT_STYLE, unsafe_allow_html=True)
 
-    st.title("Claude Computer Use Demo")
+    st.header("**Automate UI Testing** with _Claude Computer Use_")
 
-    test_cases = st.file_uploader("Upload test cases in Json format",  type=["json"])
+    test_cases = st.file_uploader("Upload list of test cases in JSON file",  type=["json"])
     if test_cases is not None:
         # To convert to a string based IO:
         stringio = StringIO(test_cases.getvalue().decode("utf-8"))
