@@ -29,6 +29,7 @@ from computer_use_demo.loop import (
     APIProvider,
     sampling_loop,
 )
+from computer_use_demo.process_response import _extract_test_execution_log
 from computer_use_demo.tools import ToolResult
 
 CONFIG_DIR = PosixPath("~/.anthropic").expanduser()
@@ -49,6 +50,7 @@ STREAMLIT_STYLE = """
 
 WARNING_TEXT = "⚠️ Security Alert: Never provide access to sensitive accounts or data, as malicious web content can hijack Claude's behavior"
 
+TEST_CASE_EXEUCTION_LOG_FILE = "test_case_execution_log.json"
 
 class Sender(StrEnum):
     USER = "user"
@@ -86,7 +88,10 @@ def setup_state():
         st.session_state.hide_images = True
     if "test_cases" not in st.session_state:
         st.session_state.test_cases = []
-
+    if "test_execution_log" not in st.session_state:
+        st.session_state.test_execution_log = {}
+    if "test_cases_loaded" not in st.session_state:
+        st.session_state.test_cases_loaded = False
 
 def _reset_model():
     st.session_state.model = PROVIDER_TO_DEFAULT_MODEL_NAME[
@@ -100,19 +105,20 @@ async def main():
 
     st.markdown(STREAMLIT_STYLE, unsafe_allow_html=True)
 
-    st.header("**Automate UI Testing** with _Claude Computer Use_")
+    st.subheader("**Automate UI Testing**")
+    st.write("with _Claude Computer Use_")
 
     test_cases = st.file_uploader("Upload list of test cases in JSON file",  type=["json"])
-    if test_cases is not None:
+    if test_cases is not None and st.session_state.test_cases_loaded == False:
         # To convert to a string based IO:
         stringio = StringIO(test_cases.getvalue().decode("utf-8"))
-        st.write(stringio)
 
         # To read file as string:
         string_data = stringio.read()
-        st.write(string_data)
 
         st.session_state.test_cases = json.loads(string_data)
+
+        st.session_state.test_cases_loaded = True
 
 
     with st.sidebar:
@@ -254,8 +260,12 @@ async def main():
                 api_key=st.session_state.api_key,
                 only_n_most_recent_images=st.session_state.only_n_most_recent_images,
             )
+            st.session_state.test_execution_log = _extract_test_execution_log(st.session_state.messages)
+
             with open("messages.json", "w") as outfile: 
-                json.dump(st.session_state.messages, outfile)
+                json.dump(st.session_state.messages, outfile)            
+            with open(TEST_CASE_EXEUCTION_LOG_FILE, "w") as outTestfile: 
+                json.dump(st.session_state.test_execution_log, outTestfile)
 
         while st.session_state.test_cases.__len__() > 0:
             test_case = st.session_state.test_cases.pop(0);
@@ -285,9 +295,13 @@ async def main():
                     api_key=st.session_state.api_key,
                     only_n_most_recent_images=st.session_state.only_n_most_recent_images,
                 )
+                st.session_state.test_execution_log = _extract_test_execution_log(st.session_state.messages)
                 with open("messages.json", "w") as outfile: 
                     json.dump(st.session_state.messages, outfile)
-
+                with open(TEST_CASE_EXEUCTION_LOG_FILE, "w") as outTestfile: 
+                    json.dump(st.session_state.test_execution_log, outTestfile)
+            
+        _render_download_button(json.dumps(st.session_state.test_execution_log))
 
 def validate_auth(provider: APIProvider, api_key: str | None):
     if provider == APIProvider.ANTHROPIC:
@@ -438,6 +452,11 @@ def _render_message(
         else:
             st.markdown(message)
 
+
+def _render_download_button(
+    data:str
+):
+   st.download_button('Download Test Case Execution Log', data, TEST_CASE_EXEUCTION_LOG_FILE, 'application/json')
 
 if __name__ == "__main__":
     asyncio.run(main())
