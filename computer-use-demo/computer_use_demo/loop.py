@@ -3,6 +3,7 @@ Agentic sampling loop that calls the Anthropic API and local implementation of a
 """
 
 import platform
+import time
 from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
@@ -14,6 +15,7 @@ from anthropic import (
     AnthropicBedrock,
     AnthropicVertex,
     APIError,
+    RateLimitError,
     APIResponseValidationError,
     APIStatusError,
 )
@@ -125,24 +127,17 @@ async def sampling_loop(
                 min_removal_threshold=image_truncation_threshold,
             )
 
-        # Call the API
-        # we use raw_response to provide debug information to streamlit. Your
-        # implementation may be able call the SDK directly with:
-        # `response = client.messages.create(...)` instead.
-        try:
-            raw_response = client.beta.messages.with_raw_response.create(
-                max_tokens=max_tokens,
-                messages=messages,
-                model=model,
-                system=[system],
-                tools=tool_collection.to_params(),
-                betas=betas,
-            )
-        except (APIStatusError, APIResponseValidationError) as e:
-            api_response_callback(e.request, e.response, e)
+        raw_response = _call_api_with_retry(client, max_tokens, messages, model, system, tool_collection, betas)
+
+        if raw_response is None:
+            return messages;
+    
+        if isinstance(raw_response, APIError):
+            api_response_callback(raw_response.request, raw_response.body, raw_response)
             return messages
-        except APIError as e:
-            api_response_callback(e.request, e.body, e)
+
+        if isinstance(raw_response, APIStatusError) or isinstance(raw_response, APIResponseValidationError):
+            api_response_callback(raw_response.request, raw_response.response, raw_response)
             return messages
 
         api_response_callback(
@@ -176,6 +171,36 @@ async def sampling_loop(
             return messages
 
         messages.append({"content": tool_result_content, "role": "user"})
+
+
+def _call_api_with_retry(client, max_tokens, messages, model, system, tool_collection, betas, retry_count=2):
+    # Call the API
+    # we use raw_response to provide debug information to streamlit. Your
+    # implementation may be able call the SDK directly with:
+    # `response = client.messages.create(...)` instead.
+
+    if retry_count == 0:
+        return None
+    
+    try:
+        raw_response = client.beta.messages.with_raw_response.create(
+            max_tokens=max_tokens,
+            messages=messages,
+            model=model,
+            system=[system],
+            tools=tool_collection.to_params(),
+            betas=betas,
+        )
+    except (APIError, APIStatusError, APIResponseValidationError) as error:
+        if isinstance(error, RateLimitError):
+            retry_after = error.response.headers.get("retry-after")
+            print(f"Rate limited, retrying after {int(retry_after) + 5} seconds")
+            time.sleep(int(retry_after) + 5)
+            raw_response = _call_api_with_retry(client, max_tokens, messages, model, system, tool_collection, betas, retry_count - 1)       
+        else:
+            return error
+
+    return raw_response
 
 
 def _maybe_filter_to_n_most_recent_images(
