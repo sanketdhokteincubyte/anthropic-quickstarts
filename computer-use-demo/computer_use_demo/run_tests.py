@@ -48,6 +48,25 @@ STREAMLIT_STYLE = """
 </style>
 """
 
+STREAMLIT_STYLE_FILE_UPLOAD = '''
+<style>
+    [data-testid='stFileUploader'] {
+        width: max-content;
+    }
+    [data-testid='stFileUploader'] section {
+        padding: 0;
+        float: left;
+    }
+    [data-testid='stFileUploader'] section > input + div {
+        display: none;
+    }
+    [data-testid='stFileUploader'] section + div {
+        float: right;
+        padding-top: 0;
+    }
+</style>
+'''
+
 WARNING_TEXT = "⚠️ Security Alert: Never provide access to sensitive accounts or data, as malicious web content can hijack Claude's behavior"
 
 TEST_CASE_EXEUCTION_LOG_FILE = "test_case_execution_log.json"
@@ -110,19 +129,6 @@ async def main():
 
     st.subheader("**Automate UI Testing**")
 
-    test_cases = st.file_uploader("Upload list of test cases in JSON file",  type=["json"])
-
-    if test_cases is not None and st.session_state.test_cases_loaded == False:
-        # To convert to a string based IO:
-        stringio = StringIO(test_cases.getvalue().decode("utf-8"))
-
-        # To read file as string:
-        string_data = stringio.read()
-
-        st.session_state.test_cases = json.loads(string_data)
-
-        st.session_state.test_cases_loaded = True
-
     with st.sidebar:
 
         def _reset_api_provider():
@@ -184,6 +190,28 @@ async def main():
         else:
             st.session_state.auth_validated = True
 
+    test_cases = st.file_uploader("Upload list of test cases in JSON file",  type=["json"])
+
+    st.markdown(STREAMLIT_STYLE_FILE_UPLOAD, unsafe_allow_html=True)
+
+    if test_cases is not None and st.session_state.test_cases_loaded == False:
+        # To convert to a string based IO:
+        stringio = StringIO(test_cases.getvalue().decode("utf-8"))
+
+        # To read file as string:
+        string_data = stringio.read()
+
+        st.session_state.test_cases = json.loads(string_data)
+
+        st.session_state.test_cases_loaded = True
+
+
+    if st.session_state.test_cases_loaded:
+        if st.button("Run Tests", type="primary"):
+            await run_tests()
+
+
+async def run_tests():        
     test_results, chat, http_logs = st.tabs(["Results", "Steps", "HTTP Logs"])
     
     test_number = 1
@@ -376,28 +404,27 @@ def _render_message(
         return
         
     with chat:                
-        with st.chat_message(sender):
-            if is_tool_result:
-                message = cast(ToolResult, message)
-                if message.output:
-                    if message.__class__.__name__ == "CLIResult":
-                        st.code(message.output)
-                    else:
-                        st.markdown(message.output)
-                if message.error:
-                    st.error(message.error)
-                if message.base64_image and not st.session_state.hide_images:
-                    st.image(base64.b64decode(message.base64_image))
-            elif isinstance(message, dict):
-                if message["type"] == "text":
-                    st.write(message["text"])
-                elif message["type"] == "tool_use":
-                    st.code(f'Tool Use: {message["name"]}\nInput: {message["input"]}')
+        if is_tool_result:
+            message = cast(ToolResult, message)
+            if message.output:
+                if message.__class__.__name__ == "CLIResult":
+                    st.code(message.output)
                 else:
-                    # only expected return types are text and tool_use
-                    raise Exception(f'Unexpected response type {message["type"]}')
+                    st.markdown(message.output)
+            if message.error:
+                st.error(message.error)
+            if message.base64_image and not st.session_state.hide_images:
+                st.image(base64.b64decode(message.base64_image))
+        elif isinstance(message, dict):
+            if message["type"] == "text":
+                st.write(message["text"])
+            elif message["type"] == "tool_use":
+                st.code(f'Tool Use: {message["name"]}\nInput: {message["input"]}')
             else:
-                st.markdown(message)
+                # only expected return types are text and tool_use
+                raise Exception(f'Unexpected response type {message["type"]}')
+        else:
+            st.markdown(message)
 
 
 def _render_download_button(
