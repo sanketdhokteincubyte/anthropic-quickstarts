@@ -108,16 +108,11 @@ async def main():
 
     st.markdown(STREAMLIT_STYLE, unsafe_allow_html=True)
 
-    st.write(st.session_state.api_key)
-
     st.subheader("**Automate UI Testing**")
 
     test_cases = st.file_uploader("Upload list of test cases in JSON file",  type=["json"])
 
-    if test_cases is None:
-        return
-
-    if st.session_state.test_cases_loaded == False:
+    if test_cases is not None and st.session_state.test_cases_loaded == False:
         # To convert to a string based IO:
         stringio = StringIO(test_cases.getvalue().decode("utf-8"))
 
@@ -197,11 +192,11 @@ async def main():
 
         with test_results:
             with st.expander(f"Test Case: {test_number}", expanded=False):            
-                container = st.container(border=True, height=150)
+                container = st.container(border=True, height=200)
 
         with chat:
             with st.expander(f"Test Case: {test_number}", expanded=False):            
-                chat_container = st.container(border=True, height=150)
+                chat_container = st.container(border=True, height=200)
 
         test_case_execution = {
             "test_case": test_case,
